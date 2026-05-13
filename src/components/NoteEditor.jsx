@@ -4,6 +4,10 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, Save, Eye, Edit3, Plus, CheckCircle, Trash2, ArrowLeft, Link as LinkIcon, Layout as LayoutIcon, Zap, GitCommit } from 'lucide-react';
+import CodeMirror from '@uiw/react-codemirror';
+import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
+import { languages } from '@codemirror/language-data';
+import { oneDark } from '@codemirror/theme-one-dark';
 import KanbanBoard from './KanbanBoard';
 import MermaidRenderer from './MermaidRenderer';
 import TableEditorModal from './TableEditorModal';
@@ -32,7 +36,7 @@ const NoteEditor = ({ initialNote, plugins = {} }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [newNotePromptOpen, setNewNotePromptOpen] = useState(false);
   const [btpModalConfig, setBtpModalConfig] = useState({ isOpen: false, type: null });
-  const textareaRef = useRef(null);
+  const editorRef = useRef(null);
 
   const templatesList = [
     { name: "Note Journalière", content: "# Journal du <% return new Date().toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) %>\n\n## Humeur\n\n## Tâches du jour\n- [ ] " },
@@ -57,35 +61,24 @@ const NoteEditor = ({ initialNote, plugins = {} }) => {
   };
 
   const insertMarkdown = (prefix, suffix = '') => {
-    if (!textareaRef.current) return;
-    const textarea = textareaRef.current;
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const selectedText = content.substring(start, end);
-    const newText = content.substring(0, start) + prefix + selectedText + suffix + content.substring(end);
-    
-    setContent(newText);
-    
-    setTimeout(() => {
-      textarea.focus();
-      textarea.setSelectionRange(start + prefix.length, end + prefix.length);
-    }, 0);
-  };
+    if (!editorRef.current) {
+      setContent(content + '\n' + prefix + suffix);
+      return;
+    }
+    const view = editorRef.current.view;
+    if (!view) return;
 
-  const handleKeyDown = (e) => {
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      insertMarkdown('  ', '');
-    }
-    // Bold
-    if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
-      e.preventDefault();
-      insertMarkdown('**', '**');
-    }
-    // Italic
-    if ((e.ctrlKey || e.metaKey) && e.key === 'i') {
-      e.preventDefault();
-      insertMarkdown('*', '*');
+    const ranges = view.state.selection.ranges;
+    if (ranges.length > 0) {
+      const range = ranges[0];
+      const selectedText = view.state.sliceDoc(range.from, range.to);
+      const insertText = prefix + selectedText + suffix;
+
+      view.dispatch({
+        changes: { from: range.from, to: range.to, insert: insertText },
+        selection: { anchor: range.from + prefix.length, head: range.from + prefix.length + selectedText.length }
+      });
+      view.focus();
     }
   };
 
@@ -501,8 +494,8 @@ const NoteEditor = ({ initialNote, plugins = {} }) => {
                   >
                     {/* Markdown Formatting Toolbar */}
                     <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', padding: '0.5rem', background: 'rgba(255,255,255,0.02)', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
-                      <ToolbarButton icon={<span style={{ fontWeight: 800 }}>B</span>} onClick={() => insertMarkdown('**', '**')} title="Gras" />
-                      <ToolbarButton icon={<span style={{ fontStyle: 'italic' }}>I</span>} onClick={() => insertMarkdown('*', '*')} title="Italique" />
+                      <ToolbarButton icon={<span style={{ fontWeight: 800 }}>B</span>} onClick={(e) => { e.preventDefault(); insertMarkdown('**', '**'); }} title="Gras" />
+                      <ToolbarButton icon={<span style={{ fontStyle: 'italic' }}>I</span>} onClick={(e) => { e.preventDefault(); insertMarkdown('*', '*'); }} title="Italique" />
                       <div style={{ width: '1px', background: 'var(--glass-border)', margin: '0 0.5rem' }}></div>
                       <ToolbarButton icon={<span style={{ fontWeight: 700 }}>H1</span>} onClick={() => insertMarkdown('# ', '')} title="Titre 1" />
                       <ToolbarButton icon={<span style={{ fontWeight: 600 }}>H2</span>} onClick={() => insertMarkdown('## ', '')} title="Titre 2" />
@@ -616,10 +609,15 @@ const NoteEditor = ({ initialNote, plugins = {} }) => {
                           <ToolbarButton 
                             icon={<TableProperties size={14} color="#10b981" />} 
                             onClick={() => {
-                              const textarea = textareaRef.current;
-                              if (textarea) {
-                                const selectedText = content.substring(textarea.selectionStart, textarea.selectionEnd);
-                                setTableInitialMarkdown(selectedText);
+                              if (editorRef.current && editorRef.current.view) {
+                                const view = editorRef.current.view;
+                                const ranges = view.state.selection.ranges;
+                                if (ranges.length > 0) {
+                                  const range = ranges[0];
+                                  setTableInitialMarkdown(view.state.sliceDoc(range.from, range.to));
+                                } else {
+                                  setTableInitialMarkdown('');
+                                }
                               } else {
                                 setTableInitialMarkdown('');
                               }
@@ -631,14 +629,17 @@ const NoteEditor = ({ initialNote, plugins = {} }) => {
                       )}
                     </div>
 
-                    <textarea
-                      ref={textareaRef}
-                      value={content}
-                      onChange={(e) => setContent(e.target.value)}
-                      onKeyDown={handleKeyDown}
-                      style={{ flex: 1, width: '100%', background: 'transparent', border: 'none', color: 'var(--text-main)', outline: 'none', fontSize: '1.1rem', fontFamily: 'monospace', lineHeight: '1.6', resize: 'none' }}
-                      placeholder="Commencez à écrire ici..."
-                    />
+                    <div style={{ flex: 1, overflow: 'auto', borderRadius: '8px', border: '1px solid var(--glass-border)' }}>
+                      <CodeMirror
+                        ref={editorRef}
+                        value={content}
+                        theme={oneDark}
+                        extensions={[markdown({ base: markdownLanguage, codeLanguages: languages })]}
+                        onChange={(value) => setContent(value)}
+                        style={{ fontSize: '1.1rem', minHeight: '100%' }}
+                        className="cm-editor-container"
+                      />
+                    </div>
 
                     <AnimatePresence>
                       {showTableEditor && (

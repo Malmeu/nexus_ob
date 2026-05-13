@@ -375,6 +375,29 @@ body {
 }
 
 
+/* CodeMirror Styles */
+.cm-editor-container .cm-editor {
+  background-color: transparent !important;
+}
+.cm-editor-container .cm-scroller {
+  font-family: 'Inter', monospace;
+  padding: 1rem;
+}
+.cm-editor-container .cm-content {
+  caret-color: var(--accent-primary);
+}
+.cm-editor-container .cm-activeLine {
+  background-color: rgba(255, 255, 255, 0.03) !important;
+}
+.cm-editor-container .cm-gutters {
+  background-color: transparent !important;
+  border-right: 1px solid var(--glass-border);
+  color: var(--text-dim);
+}
+.cm-editor-container .cm-focused {
+  outline: none !important;
+}
+
 /* Search Results */
 .search-result-item:hover {
   background: rgba(255, 255, 255, 0.05) !important;
