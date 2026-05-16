@@ -10,17 +10,22 @@ const GraphView = ({ onNodeClick }) => {
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   const containerRef = useRef();
 
-  useEffect(() => {
-    fetchGraphData();
-    updateDimensions();
-    window.addEventListener('resize', updateDimensions);
-    return () => window.removeEventListener('resize', updateDimensions);
-  }, []);
-
   const fetchGraphData = async () => {
     try {
       const res = await axios.get(`${API_BASE}/graph?t=${Date.now()}`);
-      setData(res.data);
+
+      // Inject Black Hole Node
+      const graphData = res.data;
+      graphData.nodes.push({
+        id: '__blackhole__',
+        name: 'Delete',
+        isBlackHole: true,
+        val: 10,
+        fx: 0,
+        fy: 0
+      });
+
+      setData(graphData);
     } catch (err) {
       console.error("Error fetching graph data:", err);
     }
@@ -34,6 +39,13 @@ const GraphView = ({ onNodeClick }) => {
       });
     }
   };
+
+  useEffect(() => {
+    fetchGraphData();
+    updateDimensions();
+    window.addEventListener('resize', updateDimensions);
+    return () => window.removeEventListener('resize', updateDimensions);
+  }, []);
 
   return (
     <motion.div 
@@ -54,7 +66,31 @@ const GraphView = ({ onNodeClick }) => {
         graphData={data}
         width={dimensions.width}
         height={dimensions.height}
-        onNodeClick={(node) => onNodeClick({ path: node.id + '.md', name: node.id })}
+        onNodeClick={(node) => {
+          if (!node.isBlackHole) {
+            onNodeClick({ path: node.id + '.md', name: node.id });
+          }
+        }}
+        onNodeDragEnd={async (node) => {
+          if (node.isBlackHole) return;
+
+          const blackHole = data.nodes.find(n => n.isBlackHole);
+          if (blackHole) {
+            const dx = node.x - blackHole.x;
+            const dy = node.y - blackHole.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            // If dropped within 40 units of the black hole
+            if (distance < 40) {
+              try {
+                await axios.delete(`${API_BASE}/notes/${encodeURIComponent(node.id + '.md')}`);
+                fetchGraphData();
+              } catch (err) {
+                console.error("Error deleting note:", err);
+              }
+            }
+          }
+        }}
         nodeLabel="name"
         linkDirectionalArrowLength={3.5}
         linkDirectionalArrowRelPos={1}
@@ -62,24 +98,54 @@ const GraphView = ({ onNodeClick }) => {
         nodeRelSize={6}
         linkColor={() => 'rgba(255, 255, 255, 0.1)'}
         linkDirectionalParticles={2}
-        linkDirectionalParticleSpeed={d => 0.005}
+        linkDirectionalParticleSpeed={() => 0.005}
         backgroundColor="rgba(0,0,0,0)"
         nodeCanvasObject={(node, ctx, globalScale) => {
-          const label = node.name;
-          const fontSize = 12 / globalScale;
-          ctx.font = `${fontSize}px Inter`;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-          ctx.fillText(label, node.x, node.y + 10);
+          if (node.isBlackHole) {
+            // Draw Black Hole
+            const bhRadius = 25;
 
-          // Draw node circle with glow
-          ctx.beginPath();
-          ctx.arc(node.x, node.y, 4, 0, 2 * Math.PI, false);
-          ctx.fillStyle = node.color || '#00d2ff';
-          ctx.shadowBlur = 15;
-          ctx.shadowColor = node.color || '#00d2ff';
-          ctx.fill();
+            // Accretion disk (glow)
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, bhRadius * 1.5, 0, 2 * Math.PI, false);
+            ctx.fillStyle = 'rgba(120, 0, 255, 0.2)';
+            ctx.shadowBlur = 30;
+            ctx.shadowColor = '#ff0055';
+            ctx.fill();
+
+            // Event horizon (dark center)
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, bhRadius, 0, 2 * Math.PI, false);
+            ctx.fillStyle = '#050010';
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#000000';
+            ctx.fill();
+
+            // Label
+            const fontSize = 14 / globalScale;
+            ctx.font = `bold ${fontSize}px Inter`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.shadowBlur = 0;
+            ctx.fillText(node.name, node.x, node.y);
+          } else {
+            const label = node.name;
+            const fontSize = 12 / globalScale;
+            ctx.font = `${fontSize}px Inter`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.fillText(label, node.x, node.y + 10);
+
+            // Draw node circle with glow
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, 4, 0, 2 * Math.PI, false);
+            ctx.fillStyle = node.color || '#00d2ff';
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = node.color || '#00d2ff';
+            ctx.fill();
+          }
         }}
       />
     </motion.div>
